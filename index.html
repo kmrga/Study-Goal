@@ -132,6 +132,19 @@
     .contact-links a { color: #c8d8ff; text-decoration: none; }
     .contact-links a:hover { color: var(--gold); }
     .copyright { margin: 30px 0 0; padding-top: 17px; border-top: 1px solid rgba(157,174,255,.12); text-align: center; color: #7f8bad; font-size: .8rem; }
+
+    .checkout-backdrop { position: fixed; inset: 0; z-index: 9999; display: none; place-items: center; padding: 18px; background: rgba(2,5,18,.78); backdrop-filter: blur(8px); }
+    .checkout-backdrop.open { display: grid; }
+    .checkout-panel { width: min(440px,100%); padding: 24px; border: 1px solid rgba(157,174,255,.25); border-radius: 18px; background: #111a3b; box-shadow: 0 24px 70px rgba(0,0,0,.45); }
+    .checkout-panel h3 { margin: 0 0 6px; color: var(--gold); }
+    .checkout-panel p { margin: 0 0 16px; color: var(--muted); font-size: .9rem; }
+    .checkout-panel label { display:block; margin: 12px 0 5px; color:#dce5ff; font-size:.88rem; }
+    .checkout-panel input { width:100%; padding:12px 13px; border:1px solid var(--line); border-radius:10px; background:#080d27; color:#fff; font:inherit; }
+    .checkout-actions { display:flex; gap:10px; margin-top:18px; }
+    .checkout-actions .btn { flex:1; }
+    .checkout-message { min-height:22px; margin-top:12px; color:var(--gold); font-size:.88rem; }
+    .buy-btn:disabled { opacity:.65; cursor:wait; transform:none; }
+
     @media (max-width: 680px) {
       .hero { min-height: 300px; padding: 58px 18px; }
       main { width: min(100% - 28px, 540px); }
@@ -180,7 +193,7 @@
 
     <section class="trust-strip" aria-label="Store information">
       <div class="trust-item"><strong>Digital Products</strong>PDF format mein study material</div>
-      <div class="trust-item"><strong>Easy Access</strong>Payment link ke zariye checkout</div>
+      <div class="trust-item"><strong>Verified Checkout</strong>Razorpay Test Checkout और सुरक्षित PDF लिंक</div>
       <div class="trust-item"><strong>Study Focused</strong>Learning ko support karne ke liye</div>
     </section>
   </main>
@@ -203,9 +216,7 @@ Users agree to use this website strictly for lawful purposes.All content,design,
         </section>
         <section class="legal-card" id="privacy-policy">
           <h3>Privacy Policy</h3>
-          <p>[We deeply respect your privacy. You do not need to provide any personal information, such as your name, email, or phone number, when purchasing PDF notes from our website.
-
-All payment processes are securely handled via the Razorpay gateway, and you are redirected to receive your PDF immediately after payment. We do not store any banking or payment details on our servers. Your information remains completely safe and private.]</p>
+          <p>ऑर्डर बनाने के लिए आपका नाम और मोबाइल नंबर लिया जाता है; ईमेल वैकल्पिक है। ऑर्डर और डाउनलोड की स्थिति हमारे सर्वर पर रखी जाती है। भुगतान Razorpay Checkout पर होता है। हम कार्ड नंबर, CVV, UPI PIN या OTP अपने सर्वर पर नहीं लेते। जानकारी का उपयोग केवल ऑर्डर, भुगतान पुष्टि, सहायता और डिजिटल सामग्री उपलब्ध कराने के लिए किया जाता है।</p>
         </section>
         <section class="legal-card" id="refund-policy">
           <h3>Refund Policy</h3>
@@ -227,6 +238,37 @@ Customers are advised to carefully review the product details before making a pu
     </div>
   </footer>
 
+
+  <!-- Checkout dialog: required by the Buy Now flow -->
+  <div class="checkout-backdrop" id="checkoutBackdrop" role="dialog"
+       aria-modal="true" aria-labelledby="checkoutHeading">
+    <section class="checkout-panel">
+      <h3 id="checkoutHeading">Complete Your Order</h3>
+      <p id="checkoutProduct">Selected PDF</p>
+      <form id="checkoutForm">
+        <label for="buyerName">पूरा नाम</label>
+        <input id="buyerName" name="name" type="text" autocomplete="name"
+               maxlength="100" required>
+
+        <label for="buyerMobile">मोबाइल नंबर</label>
+        <input id="buyerMobile" name="mobile" type="tel" inputmode="numeric"
+               autocomplete="tel" pattern="[6-9][0-9]{9}" maxlength="10"
+               placeholder="10 अंकों का मोबाइल नंबर" required>
+
+        <label for="buyerEmail">ईमेल (वैकल्पिक)</label>
+        <input id="buyerEmail" name="email" type="email"
+               autocomplete="email" maxlength="150">
+
+        <div class="checkout-actions">
+          <button class="btn btn-secondary" type="button" id="closeCheckout">बंद करें</button>
+          <button class="btn btn-primary" type="submit" id="continuePayment">Continue to Payment</button>
+        </div>
+        <div class="checkout-message" id="checkoutMessage"
+             role="status" aria-live="polite"></div>
+      </form>
+    </section>
+  </div>
+
   <script>
     /* ================================================================
        PRODUCT LIST
@@ -238,25 +280,24 @@ Customers are advised to carefully review the product details before making a pu
        productName: PDF/product ka naam
        price: dikhne wali keemat
        tag: jaise "Popular", "New", "BA Notes"
-       paymentLink: apne payment gateway ka checkout/payment URL
 
-       IMPORTANT: Payment link ko apne gateway dashboard se banayein.
-       Sirf is button se payment verify ya PDF securely deliver nahi hoti.
-       Automatic delivery ke liye gateway ki verified payment confirmation
-       aur secure backend/delivery setup zaroori hai.
+       Checkout aur secure PDF delivery Worker API ke madhyam se hoti hai.
+       Razorpay ke secret keys kabhi bhi is HTML file mein na rakhein.
        ================================================================ */
 
     // फिलहाल एक ही PDF प्रकाशित की जा रही है। भविष्य में नई PDF के लिए
     // इसी array में नया product object जोड़ा जा सकता है।
+    // Worker API URL. इसे बदलने की जरूरत तभी है जब Worker URL बदले।
+    const API_BASE = "https://study-goal-api.studygoalnotes-b5d.workers.dev";
     const PRODUCTS = [
       {
+        id: "pol-sci-class12",
         image: "https://i.ibb.co/ns0Q8bgh/1795072635369.png",
         title: "राजनीति विज्ञान – कक्षा 12वीं",
         description: "कक्षा 12वीं के सम्पूर्ण राजनीति विज्ञान के दोनों भागों के NCERT आधारित नोट्स। 20 पृष्ठों में एक वाक्य में उत्तर, सही विकल्प, रिक्त स्थान और सत्य-असत्य जैसे अभ्यास प्रश्न शामिल हैं।",
         productName: "कक्षा 12वीं | राजनीति विज्ञान | दोनों भाग",
         price: "₹29",
-        tag: "Complete Notes",
-        paymentLink: ""
+        tag: "Complete Notes"
       }
     ];
 
@@ -310,23 +351,152 @@ Customers are advised to carefully review the product details before making a pu
       tag.className = "tag";
       tag.textContent = product.tag || "PDF Notes";
 
-      const buy = document.createElement("a");
+      const buy = document.createElement("button");
+      buy.type = "button";
       buy.className = "btn btn-primary buy-btn";
       buy.textContent = "Buy Now";
-      buy.href = product.paymentLink || "#";
-      buy.target = "_blank";
-      buy.rel = "noopener noreferrer";
-      if (!product.paymentLink || product.paymentLink.includes("YOUR-PAYMENT-LINK-HERE")) {
-        buy.addEventListener("click", (event) => {
-          event.preventDefault();
-          alert("खरीद और सुरक्षित PDF डाउनलोड की सुविधा अभी सेटअप नहीं हुई है। कृपया बाद में प्रयास करें।");
-        });
-      }
+      buy.addEventListener("click", () => openCheckout(product, buy));
 
       content.append(title, description, meta, tag, buy);
       card.append(imageArea, content);
       return card;
     }
+
+
+    let selectedProduct = null;
+    const checkoutBackdrop = document.getElementById("checkoutBackdrop");
+    const checkoutForm = document.getElementById("checkoutForm");
+    const checkoutMessage = document.getElementById("checkoutMessage");
+    const continuePayment = document.getElementById("continuePayment");
+
+    function openCheckout(product, button) {
+      selectedProduct = product;
+      document.getElementById("checkoutProduct").textContent = `${product.title} — ${product.price}`;
+      checkoutMessage.textContent = "";
+      checkoutBackdrop.classList.add("open");
+      document.getElementById("buyerName").focus();
+    }
+    function closeCheckout() {
+      checkoutBackdrop.classList.remove("open");
+      checkoutForm.reset();
+      selectedProduct = null;
+    }
+    document.getElementById("closeCheckout").addEventListener("click", closeCheckout);
+    checkoutBackdrop.addEventListener("click", (event) => {
+      if (event.target === checkoutBackdrop && !continuePayment.disabled) closeCheckout();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && checkoutBackdrop.classList.contains("open")
+          && !continuePayment.disabled) closeCheckout();
+    });
+
+    async function postApi(path, payload) {
+      const response = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) throw new Error(data.error || "अनुरोध पूरा नहीं हुआ।");
+      return data;
+    }
+
+    function loadRazorpay() {
+      return new Promise((resolve, reject) => {
+        if (window.Razorpay) return resolve();
+        const script = document.createElement("script");
+        script.src = "https://checkout.razorpay.com/v1/checkout.js";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Razorpay Checkout लोड नहीं हुआ।"));
+        document.head.appendChild(script);
+      });
+    }
+
+    checkoutForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!selectedProduct) return;
+      continuePayment.disabled = true;
+      checkoutMessage.textContent = "ऑर्डर बनाया जा रहा है…";
+      try {
+        const form = new FormData(checkoutForm);
+        const orderData = await postApi("/api/orders", {
+          name: String(form.get("name") || "").trim(),
+          mobile: String(form.get("mobile") || "").trim(),
+          email: String(form.get("email") || "").trim(),
+          product_id: selectedProduct.id
+        });
+        const paymentData = await postApi("/api/payments/create", { order_id: orderData.order.id });
+        await loadRazorpay();
+
+        const options = {
+          key: paymentData.key_id,
+          amount: paymentData.amount_paise,
+          currency: paymentData.currency,
+          name: "Study Goal",
+          description: selectedProduct.title,
+          order_id: paymentData.razorpay_order_id,
+          prefill: {
+            name: String(form.get("name") || ""),
+            contact: String(form.get("mobile") || ""),
+            email: String(form.get("email") || "")
+          },
+          theme: { color: "#f4c86a" },
+          modal: { ondismiss: () => {
+            checkoutMessage.textContent = "Checkout बंद हुआ। यदि भुगतान किया हो तो पेज बंद न करें; सहायता के लिए संपर्क करें।";
+            continuePayment.disabled = false;
+          }},
+          handler: async function (response) {
+            checkoutMessage.textContent = "भुगतान की सर्वर पर पुष्टि हो रही है…";
+            try {
+              const verified = await postApi("/api/payments/verify", {
+                order_id: orderData.order.id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              });
+              let downloadToken = verified.download_token;
+              if (!downloadToken) {
+                for (let attempt = 0; attempt < 5 && !downloadToken; attempt++) {
+                  await new Promise(resolve => setTimeout(resolve, 2500));
+                  try {
+                    const tokenResult = await postApi("/api/download-token", {
+                      order_id: orderData.order.id,
+                      razorpay_payment_id: response.razorpay_payment_id
+                    });
+                    downloadToken = tokenResult.download_token;
+                  } catch (retryError) {
+                    if (attempt === 4) throw retryError;
+                  }
+                }
+              }
+              if (!downloadToken) throw new Error("भुगतान captured होने की पुष्टि अभी नहीं मिली। कृपया सहायता से संपर्क करें।");
+              checkoutMessage.textContent = "टेस्ट भुगतान सत्यापित। PDF डाउनलोड शुरू हो रहा है…";
+              const link = document.createElement("a");
+              link.href = `${API_BASE}/api/download/${encodeURIComponent(downloadToken)}`;
+              link.rel = "noopener";
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              checkoutMessage.textContent = "डाउनलोड लिंक 15 मिनट और एक बार के उपयोग के लिए मान्य है।";
+              continuePayment.disabled = false;
+            } catch (error) {
+              checkoutMessage.textContent = error.message || "भुगतान की पुष्टि नहीं हो सकी।";
+              continuePayment.disabled = false;
+            }
+          }
+        };
+        const checkout = new Razorpay(options);
+        checkout.on("payment.failed", function () {
+          checkoutMessage.textContent = "टेस्ट भुगतान सफल नहीं हुआ। आप दोबारा प्रयास कर सकते हैं।";
+          continuePayment.disabled = false;
+        });
+        checkout.open();
+        checkoutMessage.textContent = "Razorpay Test Checkout खुल रहा है…";
+      } catch (error) {
+        checkoutMessage.textContent = error.message || "कुछ समस्या हुई।";
+        continuePayment.disabled = false;
+      }
+    });
 
     function renderProducts() {
       productGrid.replaceChildren();
